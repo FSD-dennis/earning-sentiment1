@@ -30,108 +30,45 @@ Outputs are written to:
 
 ## Feature Description
 
-This project builds an event-level dataset (one row per earnings event) with fused **text** and **price-based** features, plus **targets** for prediction.
+One row = one earnings event with fused text + price features, plus prediction targets.
 
-### Columns
+### Base Columns
+- **ticker**: Stock ticker symbol (uppercase), e.g., AAPL.
+- **event_date**: Event date aligned to the trading calendar (first trading day on/after the raw earnings date).
+- **source_text**: Cleaned event-related text (e.g., nearby SEC 8-K content). Used as input to TF-IDF in the fusion model.
 
-- **ticker**  
-  Stock ticker symbol (uppercase), e.g., `AAPL`.
+### Pre-event Momentum (trend into the event)
+> In the price feature code, `pre` refers to the trading day **before** the event day.
+- **pre_mom_1d**: 1-day momentum into the event.  
+  `pre_mom_1d = (Close_pre / Close_pre-1) - 1`
+- **pre_mom_5d**: 5-day momentum into the event.  
+  `pre_mom_5d = (Close_pre / Close_pre-5) - 1`
+- **pre_mom_20d**: 20-day momentum into the event.  
+  `pre_mom_20d = (Close_pre / Close_pre-20) - 1`
 
-- **event_date**  
-  The event date aligned to the trading calendar (the first trading day on/after the raw earnings date).
-
-- **source_text**  
-  Cleaned text associated with the event (e.g., nearby SEC 8-K content). Used as the main text input for TF-IDF features in the fusion model.
-
----
-
-### Pre-event Momentum (Price Trend)
-
-> In the price feature code, `pre_idx = idx - 1` (the trading day **before** the event day).
-
-- **pre_mom_1d**  
-  1-day pre-event momentum:  
-  \[
-  \frac{Close_{pre}}{Close_{pre-1}} - 1
-  \]
-  Measures very short-term trend into the event.
-
-- **pre_mom_5d**  
-  5-day pre-event momentum:  
-  \[
-  \frac{Close_{pre}}{Close_{pre-5}} - 1
-  \]
-  Measures weekly-scale trend into the event.
-
-- **pre_mom_20d**  
-  20-day pre-event momentum:  
-  \[
-  \frac{Close_{pre}}{Close_{pre-20}} - 1
-  \]
-  Measures ~1-month trend into the event.
-
----
-
-### Pre-event Volatility (Risk / Regime)
-
-- **pre_rv_20**  
-  20-day realized volatility (annualized) using daily close-to-close returns:  
-  \[
-  \sigma(\text{ret}_{1d,20}) \times \sqrt{252}
-  \]
-  Higher values indicate more unstable price behavior before the event.
-
-- **pre_vol_compression_5v20**  
-  Short-term vs medium-term volatility ratio:  
-  \[
-  \frac{\sigma(\text{ret}_{1d,5})}{\sigma(\text{ret}_{1d,20})}
-  \]
-  Values < 1 suggest volatility compression; > 1 suggests recent volatility expansion.
-
----
+### Pre-event Volatility (risk/regime)
+- **pre_rv_20**: 20-day realized volatility (annualized) based on daily close-to-close returns.  
+  `pre_rv_20 = std(ret_1d over last 20 trading days) * sqrt(252)`
+- **pre_vol_compression_5v20**: Short-term vs medium-term volatility ratio.  
+  `pre_vol_compression_5v20 = std(ret_1d over last 5 days) / std(ret_1d over last 20 days)`  
+  Interpretation: `< 1` = volatility compression, `> 1` = volatility expansion.
 
 ### Pre-event Volume / Liquidity Proxies
-
-- **pre_volume_spike**  
-  Pre-event volume spike ratio:  
-  \[
-  \frac{Volume_{pre}}{\text{mean}(Volume_{pre-20:pre})}
-  \]
-  Values > 1 indicate unusually high volume right before the event.
-
-- **pre_liquidity_gap_proxy**  
-  Coarse liquidity / “jumpiness” proxy from daily candles (median over the last 5 days):  
-  \[
-  \text{median}\left(\frac{|Close - Open|}{Open}\right)
-  \]
-  Larger values indicate larger typical open-to-close moves (proxy only; not true bid-ask liquidity).
-
----
+- **pre_volume_spike**: Volume spike on the pre-event day relative to the last 20-day average.  
+  `pre_volume_spike = Volume_pre / mean(Volume over last 20 days)`
+- **pre_liquidity_gap_proxy**: Coarse “jumpiness/liquidity” proxy from daily candles (median over last 5 days).  
+  `pre_liquidity_gap_proxy = median( abs(Close - Open) / Open over last 5 days )`  
+  Note: This is a proxy from daily bars (not true bid-ask liquidity).
 
 ### Event-day Gap
-
-- **event_gap**  
-  Overnight gap proxy on the event trading day:  
-  \[
-  \frac{Open_{event}}{Close_{event-1}} - 1
-  \]
-  Captures jump at the open relative to the previous close.
-
----
+- **event_gap**: Overnight gap proxy on the event trading day.  
+  `event_gap = (Open_event / Close_event-1) - 1`
 
 ### Targets (Prediction Labels)
-
-> These are **labels**, not input features. They are computed from the event-day close to future closes.
-
-- **target_ret_1d / target_ret_3d / target_ret_7d**  
-  Post-event return over `h` trading days:  
-  \[
-  \frac{Close_{event+h}}{Close_{event}} - 1
-  \]
+> Targets are labels computed from the event-day close to future closes (not input features).
+- **target_ret_1d / target_ret_3d / target_ret_7d**: Post-event return over `h` trading days.  
+  `target_ret_hd = (Close_event+h / Close_event) - 1`  
   Used for **regression**.
-
-- **target_dir_1d / target_dir_3d / target_dir_7d**  
-  Direction label derived from `target_ret_hd`:  
-  - `1` if `target_ret_hd > 0`  
-  - `0` if `target_ret_hd <= 0`  
+- **target_dir_1d / target_dir_3d / target_dir_7d**: Direction label derived from `target_ret_hd`.  
+  `target_dir_hd = 1 if target_ret_hd > 0 else 0`  
   Used for **classification**.
